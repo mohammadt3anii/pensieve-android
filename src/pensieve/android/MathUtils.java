@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package pensieve;
+package pensieve.android;
 
 /**
  * A utility class containing arithmetic and geometry helper methods.

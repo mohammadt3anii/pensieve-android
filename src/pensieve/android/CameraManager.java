@@ -1,10 +1,14 @@
-package pensieve;
+package pensieve.android;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.Size;
@@ -144,11 +148,32 @@ public class CameraManager {
 		return Camera.getNumberOfCameras();
 	}
 	
+	/** Convert an image in Android's native YUV NV21 format to JPEG. */
+	public static byte[] convertImage_NV21_to_JPEG(byte[] imageNV21, int imageFormat, int width, int height, int quality) {
+		final int imageSize = width * height;
+		if (!(imageFormat == ImageFormat.NV21 || imageFormat == ImageFormat.YUY2) || imageNV21.length != (int) (1.5 * imageSize)) {
+			Log.e(TAG, "[NV21 to JPEG] Incompatible image format or invalid YUV image; format: " + imageFormat + ", size: (" + width + ", " + height + "), pixels: " + imageSize + ", num_bytes: " + imageNV21.length + ", quality: " + quality);
+			return null;
+		}
+		
+		YuvImage yuvImage = new YuvImage(imageNV21, imageFormat, width, height, null);
+		ByteArrayOutputStream imageJPEGStream = new ByteArrayOutputStream();
+		if (yuvImage.compressToJpeg(new Rect(0, 0, width, height), quality, imageJPEGStream)) {
+			byte[] imageJPEG = imageJPEGStream.toByteArray();
+			Log.v(TAG, "[NV21 to JPEG] JPEG compression successful; " + (100 * imageJPEG.length / imageNV21.length) + "% of original (" + imageNV21.length + " to " + imageJPEG.length + " bytes) at quality: " + quality);
+			return imageJPEG;
+		}
+		else {
+			Log.e(TAG, "[NV21 to JPEG] JPEG compression failed");
+			return null;
+		}
+	}
+	
 	/** Convert an image in Android's native YUV NV21 format to RGB. */
-	public static byte[] YUV_NV21_TO_RGB(byte[] yuv, int width, int height) {
-		final int frameSize = width * height;
-		if (yuv.length != (int) (1.5 * frameSize)) {
-			Log.e(TAG, "Invalid YUV image; size: (" + width + ", " + height + "), pixels: " + (width * height) + ", num_bytes: " + yuv.length);
+	public static byte[] convertImage_NV21_to_RGB(byte[] imageNV21, int imageFormat, int width, int height) {
+		final int imageSize = width * height;
+		if (imageFormat != ImageFormat.NV21 || imageNV21.length != (int) (1.5 * imageSize)) {
+			Log.e(TAG, "[NV21 to RGB] Incompatible image format or invalid YUV image; format: " + imageFormat + ", size: (" + width + ", " + height + "), pixels: " + imageSize + ", num_bytes: " + imageNV21.length);
 			return null;
 		}
 
@@ -157,13 +182,13 @@ public class CameraManager {
 		final int di = +1;
 		final int dj = +1;
 
-		byte[] rgb = new byte[frameSize * 3];
-		int a = 0;
+		byte[] imageRGB = new byte[imageSize * 3];
+		int k = 0;
 		for (int i = 0, ci = ii; i < height; ++i, ci += di) {
 			for (int j = 0, cj = ij; j < width; ++j, cj += dj) {
-				int y = (0xff & ((int) yuv[ci * width + cj]));
-				int v = (0xff & ((int) yuv[frameSize + (ci >> 1) * width + (cj & ~1) + 0]));
-				int u = (0xff & ((int) yuv[frameSize + (ci >> 1) * width + (cj & ~1) + 1]));
+				int y = (0xff & ((int) imageNV21[ci * width + cj]));
+				int v = (0xff & ((int) imageNV21[imageSize + (ci >> 1) * width + (cj & ~1) + 0]));
+				int u = (0xff & ((int) imageNV21[imageSize + (ci >> 1) * width + (cj & ~1) + 1]));
 				y = y < 16 ? 16 : y;
 
 				int r = (int) (1.164f * (y - 16) + 1.596f * (v - 128));
@@ -174,13 +199,13 @@ public class CameraManager {
 				g = g < 0 ? 0 : (g > 255 ? 255 : g);
 				b = b < 0 ? 0 : (b > 255 ? 255 : b);
 
-				rgb[a++] = (byte) r;
-				rgb[a++] = (byte) g;
-				rgb[a++] = (byte) b;
+				imageRGB[k++] = (byte) r;
+				imageRGB[k++] = (byte) g;
+				imageRGB[k++] = (byte) b;
 			}
 		}
 		
-		return rgb;
+		return imageRGB;
 	}
 	
 	public CameraManager(Context context) {

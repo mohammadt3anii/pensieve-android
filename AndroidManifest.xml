@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="edu.ncsu.csc.kdl.sensorstream"
+    package="pensieve.android"
     android:versionCode="1"
     android:versionName="1.0" >
 
@@ -13,6 +13,7 @@
     
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <application
         android:allowBackup="true"
@@ -25,7 +26,7 @@
             android:required="true" /> -->
         
         <activity
-            android:name="pensieve.SensorStreamActivity"
+            android:name="pensieve.android.SensorStreamActivity"
             android:label="@string/app_name"
             android:icon="@drawable/ic_launcher"
             android:screenOrientation="landscape" android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">

@@ -1,4 +1,4 @@
-package pensieve;
+package pensieve.android;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -7,7 +7,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.zeromq.ZMQ;
 
-import edu.ncsu.csc.kdl.sensorstream.R;
 import android.app.Activity;
 import android.content.Context;
 import android.hardware.Camera;
@@ -20,6 +19,8 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 public class SensorStreamActivity extends Activity {
@@ -44,9 +45,11 @@ public class SensorStreamActivity extends Activity {
 	private int cameraWidth = CameraManager.defaultCameraWidth, cameraHeight = CameraManager.defaultCameraHeight; // pass 0 or -1 to use device-preferred size
 	private PostCameraImageThread postCameraImageThread = null; // must do network-heavy stuff in non-UI thread
 	private byte imageHeaderDataSep = '\n'; // used to separate image header from data in combined packet mode; must be byte or byte[]
+	private String imageFormat = "JPEG"; // "RGB", "JPEG" etc. as supported by CameraManager.convertImage_XXX_to_YYY() methods
+	private int jpegQuality = 90;
 	
 	// ZMQ components (TODO use separate ZMQClientThread class)
-	private String serverAddress = "tcp://10.0.2.2:61445"; // leave null to read from resources; or any endpoint e.g.: "tcp://192.168.1.106:61445"; for emulator to host: "tcp://10.0.2.2:61445"
+	private String serverAddress = null; // leave null to read from resources; or any endpoint e.g.: "tcp://192.168.1.106:61445", "tcp://honeydew.csc.ncsu.edu:61445"; for emulator to host: "tcp://10.0.2.2:61445"
 	private ZMQ.Context context = null;
 	private ZMQ.Socket socket = null;
 	private final Object socketLock = new Object();
@@ -59,6 +62,17 @@ public class SensorStreamActivity extends Activity {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_sensor_stream);
+		
+		// Keep screen on
+		Window myWindow = getWindow();
+		myWindow.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+		myWindow.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+		myWindow.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+		//myWindow.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+		// Alternate method: Use a wake lock (NOTE requires manifest permission: android.permission.WAKE_LOCK")
+		//wakeLock = ((PowerManager) getSystemService(Context.POWER_SERVICE)).newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, TAG);
+		//wakeLock.acquire(); // in onResume()
+		//wakeLock.release(); // in onPause()
 		
 		// Get UI elements
 		cameraPreviewLayout = (FrameLayout) findViewById(R.id.cameraPreviewLayout);
@@ -162,6 +176,9 @@ public class SensorStreamActivity extends Activity {
 		sensorManager = null;
 		cameraManager = null;
 		
+		socket = null;
+		context = null;
+		
 		super.onDestroy();
 	}
 	
@@ -191,11 +208,9 @@ public class SensorStreamActivity extends Activity {
 			serverAvailable = false;
 			if (socket != null) {
 				socket.close();
-				socket = null;
 			}
 			if (context != null) {
 				context.term();
-				context = null;
 			}
 		}
 	}
@@ -377,8 +392,15 @@ public class SensorStreamActivity extends Activity {
 			int frameFormat = camera.getParameters().getPreviewFormat();
 			Log.v(TAG, "[Frame] size: (" + frameSize.width + ", " + frameSize.height + "), pixels: " + (frameSize.width * frameSize.height) + ", num_bytes: " + frame.length + ", format: " + frameFormat);
 
-			// Process frame, if required (TODO check decoding)
-			byte[] rgb = CameraManager.YUV_NV21_TO_RGB(frame, frameSize.width, frameSize.height);
+			// Process frame, if required
+			byte[] image = null;
+			if (imageFormat.equalsIgnoreCase("RGB"))
+				image = CameraManager.convertImage_NV21_to_RGB(frame, frameFormat, frameSize.width, frameSize.height);
+			else if (imageFormat.equalsIgnoreCase("JPEG"))
+				image = CameraManager.convertImage_NV21_to_JPEG(frame, frameFormat, frameSize.width, frameSize.height, jpegQuality);
+			
+			if (image == null)
+				return;
 
 			// Send over ZMQ (header as JSON-encoded string and raw image data concatenated with a separator)
 			// * TODO Check if ZMQ socket is ready to send
@@ -387,17 +409,17 @@ public class SensorStreamActivity extends Activity {
 					// * Prepare image header request
 					JSONObject requestObj = new JSONObject();
 					requestObj.put("type", "image");
-					requestObj.put("num_bytes", rgb.length);
+					requestObj.put("num_bytes", image.length);
 					requestObj.put("width", frameSize.width);
 					requestObj.put("height", frameSize.height);
-					requestObj.put("format", "RGB");
+					requestObj.put("format", imageFormat);
 					String request = requestObj.toString();
 					
 					// * Send image header request and data concatenated together with a known separator
 					ByteArrayOutputStream combinedRequestStream = new ByteArrayOutputStream( );
 					combinedRequestStream.write(request.getBytes());
 					combinedRequestStream.write(imageHeaderDataSep);
-					combinedRequestStream.write(rgb);
+					combinedRequestStream.write(image);
 					Log.v(TAG, "[Frame] Sending image header + data packet");
 					if(socket.send(combinedRequestStream.toByteArray())) {
 						String reply = socket.recvStr();
