@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Sensor Stream</string>
+    <string name="sensor_stream_voice_trigger">stream away</string>
+    <string name="server_address">tcp://pac.bz:61455</string>
+
+</resources>
